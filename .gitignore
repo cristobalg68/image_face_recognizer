@@ -1,2 +1,8 @@
 # env folder
 .venv
+
+# data folder
+.data/
+
+# weights folder
+.weights/
