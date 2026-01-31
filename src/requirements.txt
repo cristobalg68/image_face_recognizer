@@ -1,0 +1,23 @@
+# Requisitos para Sistema de Reconocimiento Facial
+
+# Procesamiento de imágenes y visión por computadora
+opencv-python>=4.8.0
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# Deep Learning y detección
+ultralytics>=8.0.0
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Hashing perceptual
+imagehash>=4.3.1
+
+# Interfaz gráfica
+PyQt6>=6.5.0
+
+# Base de datos (incluido en Python estándar)
+# sqlite3 (viene con Python)
+
+# Opcional: Para mejor rendimiento
+# onnxruntime>=1.15.0  # Para inferencia más rápida con ONNX
