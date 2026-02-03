@@ -4,8 +4,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
 ![PyQt6](https://img.shields.io/badge/PyQt6-6.5%2B-green)
-![YOLO](https://img.shields.io/badge/YOLO-v8-red)
-![License](https://img.shields.io/badge/License-MIT-yellow)
+![YOLO](https://img.shields.io/badge/YOLO-v12-red)
 
 Sistema de reconocimiento facial en tiempo real con detección mejorada, registro inteligente y base de datos SQLite.
 
@@ -31,11 +30,7 @@ Sistema de reconocimiento facial en tiempo real con detección mejorada, registr
   - [Parámetros del Detector](#parámetros-del-detector)
   - [Ajuste de Reconocimiento](#ajuste-de-reconocimiento)
 - [Arquitectura](#-arquitectura)
-- [API y Módulos](#-api-y-módulos)
-- [Solución de Problemas](#-solución-de-problemas)
 - [Mejoras Futuras](#-mejoras-futuras)
-- [Contribuir](#-contribuir)
-- [Licencia](#-licencia)
 
 ---
 
