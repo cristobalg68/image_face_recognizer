@@ -43,24 +43,31 @@ def process_detections(detections):
     return processed
 
 
-def extract_faces(image, detections):
+def extract_faces(image, detections, padding=0.2):
     """
-    Extrae las regiones de caras de la imagen
+    Extrae las regiones de caras de la imagen con padding
     
     Args:
         image: Imagen original (numpy array)
         detections: Lista de detecciones procesadas
+        padding: Porcentaje de padding alrededor de la cara (default: 0.2 = 20%)
     """
     h, w = image.shape[:2]
     
     for det in detections:
         x1, y1, x2, y2 = det['xyxy']
         
-        # Asegurar que las coordenadas estén dentro de la imagen
-        x1 = max(0, x1)
-        y1 = max(0, y1)
-        x2 = min(w, x2)
-        y2 = min(h, y2)
+        # Agregar padding
+        width = x2 - x1
+        height = y2 - y1
+        
+        pad_w = int(width * padding)
+        pad_h = int(height * padding)
+        
+        x1 = max(0, x1 - pad_w)
+        y1 = max(0, y1 - pad_h)
+        x2 = min(w, x2 + pad_w)
+        y2 = min(h, y2 + pad_h)
         
         # Extraer cara
         face = image[y1:y2, x1:x2]
@@ -68,34 +75,70 @@ def extract_faces(image, detections):
         if face.size > 0:
             # Redimensionar a tamaño estándar para hash consistente
             face_resized = cv2.resize(face, (200, 200))
-            det['face_image'] = face_resized
+            
+            # Normalizar la imagen para mejor reconocimiento
+            face_normalized = normalize_face(face_resized)
+            
+            det['face_image'] = face_normalized
+            det['face_image_original'] = face_resized  # Guardar sin normalizar para visualización
 
 
-def hash_image(img, hash_size):
+def normalize_face(face_img):
     """
-    Calcula hash combinado (dhash + phash) de una imagen
+    Normaliza una imagen de cara para mejorar el reconocimiento
+    Aplica corrección de iluminación y mejora de contraste
+    
+    Args:
+        face_img: Imagen de la cara (numpy array BGR)
+        
+    Returns:
+        Imagen normalizada
+    """
+    # Convertir a LAB para trabajar con luminosidad
+    lab = cv2.cvtColor(face_img, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    
+    # Ecualización adaptativa de histograma en canal L
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    l_equalized = clahe.apply(l)
+    
+    # Recombinar canales
+    lab_equalized = cv2.merge([l_equalized, a, b])
+    
+    # Convertir de vuelta a BGR
+    normalized = cv2.cvtColor(lab_equalized, cv2.COLOR_LAB2BGR)
+    
+    return normalized
+
+
+def hash_image_multi(img, hash_size):
+    """
+    Calcula múltiples hashes para mejor robustez
+    Incluye dhash, phash y ahash
     
     Args:
         img: Imagen (numpy array BGR)
         hash_size: Tamaño del hash
         
     Returns:
-        String con hash combinado
+        String con hashes combinados
     """
     # Convertir BGR a RGB
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     pil_img = Image.fromarray(img_rgb)
     
-    # Calcular hashes
+    # Calcular múltiples tipos de hash
     dhash = str(imagehash.dhash(pil_img, hash_size))
     phash = str(imagehash.phash(pil_img, hash_size))
+    ahash = str(imagehash.average_hash(pil_img, hash_size))
     
-    return f'{dhash}{phash}'
+    # Combinar hashes
+    return f'{dhash}{phash}{ahash}'
 
 
 def hash_faces(detections, hash_size):
     """
-    Calcula hashes para todas las caras detectadas
+    Calcula hashes para todas las caras detectadas con múltiples variaciones
     
     Args:
         detections: Lista de detecciones con face_image
@@ -103,45 +146,92 @@ def hash_faces(detections, hash_size):
     """
     for det in detections:
         if 'face_image' in det:
-            # Hash normal
-            det['hash'] = hash_image(det['face_image'], hash_size)
+            # Hash de imagen normalizada
+            det['hash'] = hash_image_multi(det['face_image'], hash_size)
             
             # Hash volteado (espejo)
             flipped = cv2.flip(det['face_image'], 1)
-            det['hash_flipped'] = hash_image(flipped, hash_size)
+            det['hash_flipped'] = hash_image_multi(flipped, hash_size)
+            
+            # Hash con rotaciones leves para mayor robustez
+            # Rotación +5 grados
+            rotated_5 = rotate_image(det['face_image'], 5)
+            det['hash_rot5'] = hash_image_multi(rotated_5, hash_size)
+            
+            # Rotación -5 grados
+            rotated_neg5 = rotate_image(det['face_image'], -5)
+            det['hash_rot_neg5'] = hash_image_multi(rotated_neg5, hash_size)
 
 
-def match_faces(detections, db, threshold=102.0):
+def rotate_image(image, angle):
     """
-    Busca coincidencias de caras en la base de datos
+    Rota una imagen un ángulo específico
+    
+    Args:
+        image: Imagen a rotar
+        angle: Ángulo en grados
+        
+    Returns:
+        Imagen rotada
+    """
+    h, w = image.shape[:2]
+    center = (w // 2, h // 2)
+    
+    # Matriz de rotación
+    M = cv2.getRotationMatrix2D(center, angle, 1.0)
+    
+    # Rotar
+    rotated = cv2.warpAffine(image, M, (w, h), 
+                             flags=cv2.INTER_LINEAR,
+                             borderMode=cv2.BORDER_REPLICATE)
+    
+    return rotated
+
+
+def match_faces(detections, db, threshold=150.0):
+    """
+    Busca coincidencias de caras en la base de datos con búsqueda robusta
+    Prueba múltiples variaciones de hash para mejor reconocimiento
     
     Args:
         detections: Lista de detecciones con hashes
         db: Instancia de FaceDatabase
-        threshold: Umbral de similitud (default: 102.0)
+        threshold: Umbral de similitud (default: 150.0 para hashes múltiples)
     """
     for det in detections:
         if 'hash' in det:
-            # Buscar coincidencia para hash normal
-            match1, sim1, img_path1 = db.find_match(det['hash'], threshold)
+            best_match = None
+            best_similarity = 0
+            best_image_path = None
             
-            # Buscar coincidencia para hash volteado
-            match2, sim2, img_path2 = db.find_match(det['hash_flipped'], threshold)
+            # Probar todos los hashes disponibles
+            hash_variants = [
+                ('hash', det.get('hash', '')),
+                ('hash_flipped', det.get('hash_flipped', '')),
+                ('hash_rot5', det.get('hash_rot5', '')),
+                ('hash_rot_neg5', det.get('hash_rot_neg5', ''))
+            ]
             
-            # Elegir la mejor coincidencia
-            if match1 and (not match2 or sim1 >= sim2):
-                det['person_name'] = match1
-                det['similarity'] = sim1
-                det['db_image_path'] = img_path1
-                det['is_unknown'] = False
-            elif match2:
-                det['person_name'] = match2
-                det['similarity'] = sim2
-                det['db_image_path'] = img_path2
+            for variant_name, hash_value in hash_variants:
+                if not hash_value:
+                    continue
+                
+                match, sim, img_path = db.find_match(hash_value, threshold)
+                
+                if match and sim > best_similarity:
+                    best_match = match
+                    best_similarity = sim
+                    best_image_path = img_path
+            
+            # Asignar mejor coincidencia
+            if best_match:
+                det['person_name'] = best_match
+                det['similarity'] = best_similarity
+                det['db_image_path'] = best_image_path
                 det['is_unknown'] = False
             else:
-                # No se encontró coincidencia
-                det['person_name'] = 'Desconocido'
+                # No se encontró coincidencia - es desconocido
+                det['person_name'] = None
                 det['similarity'] = 0.0
                 det['db_image_path'] = None
                 det['is_unknown'] = True
@@ -195,14 +285,43 @@ def calcular_iou(bbox1, bbox2):
     return iou
 
 
-def track_faces(detections, tracker, iou_threshold=0.5):
+def hamming_distance(hash1, hash2):
+    """
+    Calcula la distancia de Hamming entre dos hashes
+    
+    Args:
+        hash1, hash2: Strings de hashes hexadecimales
+        
+    Returns:
+        Distancia de Hamming (número de bits diferentes)
+    """
+    if not hash1 or not hash2 or len(hash1) != len(hash2):
+        return float('inf')
+    
+    distance = 0
+    for c1, c2 in zip(hash1, hash2):
+        if c1 != c2:
+            try:
+                val1 = int(c1, 16)
+                val2 = int(c2, 16)
+                xor = val1 ^ val2
+                distance += bin(xor).count('1')
+            except ValueError:
+                distance += 4
+    
+    return distance
+
+
+def track_faces(detections, tracker, iou_threshold=0.5, unknown_similarity_threshold=80.0):
     """
     Rastrea caras entre frames para mantener IDs consistentes
+    Asigna IDs únicos a cada cara desconocida diferente
     
     Args:
         detections: Nuevas detecciones del frame actual
         tracker: Diccionario con estado del tracker
-        iou_threshold: Umbral de IoU para considerar match
+        iou_threshold: Umbral de IoU para considerar match espacial
+        unknown_similarity_threshold: Umbral de similitud de hash para caras desconocidas
     """
     new_faces = {}
     matched_detections = set()
@@ -222,7 +341,7 @@ def track_faces(detections, tracker, iou_threshold=0.5):
                 best_iou = iou
                 best_det_idx = i
         
-        # Si encontramos match, actualizar
+        # Si encontramos match espacial, actualizar
         if best_det_idx >= 0:
             matched_detections.add(best_det_idx)
             det = detections[best_det_idx]
@@ -231,29 +350,90 @@ def track_faces(detections, tracker, iou_threshold=0.5):
             new_faces[track_id] = {
                 'bbox': det['bbox'],
                 'xyxy': det['xyxy'],
-                'face_image': det.get('face_image'),
-                'person_name': det.get('person_name'),
+                'face_image': det.get('face_image_original', det.get('face_image')),
+                'hash': det.get('hash'),
+                'hash_flipped': det.get('hash_flipped'),
+                'person_name': det.get('person_name') or tracked_face.get('person_name'),
                 'similarity': det.get('similarity', 0),
                 'db_image_path': det.get('db_image_path'),
-                'is_unknown': det.get('is_unknown', False)
+                'is_unknown': det.get('is_unknown', False),
+                'confidence': det.get('confidence', 0.0)
             }
     
     # Agregar nuevas detecciones que no hicieron match
     for i, det in enumerate(detections):
         if i not in matched_detections:
-            track_id = str(tracker['last_id'])
-            
-            new_faces[track_id] = {
-                'bbox': det['bbox'],
-                'xyxy': det['xyxy'],
-                'face_image': det.get('face_image'),
-                'person_name': det.get('person_name'),
-                'similarity': det.get('similarity', 0),
-                'db_image_path': det.get('db_image_path'),
-                'is_unknown': det.get('is_unknown', False)
-            }
-            
-            tracker['last_id'] += 1
+            # Determinar si es una cara desconocida nueva o similar a una existente
+            if det.get('is_unknown', False):
+                # Buscar si hay una cara desconocida similar
+                similar_track_id = None
+                min_distance = float('inf')
+                
+                det_hash = det.get('hash', '')
+                
+                for track_id, tracked_face in new_faces.items():
+                    if tracked_face.get('is_unknown', False):
+                        tracked_hash = tracked_face.get('hash', '')
+                        
+                        if det_hash and tracked_hash:
+                            distance = hamming_distance(det_hash, tracked_hash)
+                            
+                            if distance < min_distance and distance < unknown_similarity_threshold:
+                                min_distance = distance
+                                similar_track_id = track_id
+                
+                # Si encontramos una cara desconocida similar, actualizar esa
+                if similar_track_id is not None:
+                    new_faces[similar_track_id] = {
+                        'bbox': det['bbox'],
+                        'xyxy': det['xyxy'],
+                        'face_image': det.get('face_image_original', det.get('face_image')),
+                        'hash': det.get('hash'),
+                        'hash_flipped': det.get('hash_flipped'),
+                        'person_name': new_faces[similar_track_id]['person_name'],
+                        'similarity': 0.0,
+                        'db_image_path': None,
+                        'is_unknown': True,
+                        'confidence': det.get('confidence', 0.0)
+                    }
+                    continue
+                
+                # Es una nueva cara desconocida
+                track_id = str(tracker['last_id'])
+                person_name = f"Desconocido #{tracker['last_id'] + 1}"
+                
+                new_faces[track_id] = {
+                    'bbox': det['bbox'],
+                    'xyxy': det['xyxy'],
+                    'face_image': det.get('face_image_original', det.get('face_image')),
+                    'hash': det.get('hash'),
+                    'hash_flipped': det.get('hash_flipped'),
+                    'person_name': person_name,
+                    'similarity': 0.0,
+                    'db_image_path': None,
+                    'is_unknown': True,
+                    'confidence': det.get('confidence', 0.0)
+                }
+                
+                tracker['last_id'] += 1
+            else:
+                # Persona conocida
+                track_id = str(tracker['last_id'])
+                
+                new_faces[track_id] = {
+                    'bbox': det['bbox'],
+                    'xyxy': det['xyxy'],
+                    'face_image': det.get('face_image_original', det.get('face_image')),
+                    'hash': det.get('hash'),
+                    'hash_flipped': det.get('hash_flipped'),
+                    'person_name': det.get('person_name'),
+                    'similarity': det.get('similarity', 0),
+                    'db_image_path': det.get('db_image_path'),
+                    'is_unknown': False,
+                    'confidence': det.get('confidence', 0.0)
+                }
+                
+                tracker['last_id'] += 1
     
     # Actualizar tracker
     tracker['faces'] = new_faces
@@ -261,7 +441,7 @@ def track_faces(detections, tracker, iou_threshold=0.5):
 
 def draw_faces(image, tracker):
     """
-    Dibuja las caras detectadas en la imagen con nombres
+    Dibuja las caras detectadas en la imagen con nombres y confianza
     
     Args:
         image: Imagen donde dibujar
@@ -289,9 +469,10 @@ def draw_faces(image, tracker):
         # Preparar texto
         person_name = face_data.get('person_name', 'Desconocido')
         similarity = face_data.get('similarity', 0)
+        confidence = face_data.get('confidence', 0)
         
         if is_unknown:
-            label = person_name
+            label = f"{person_name} ({confidence*100:.0f}%)"
         else:
             label = f"{person_name} ({similarity:.0f}%)"
         

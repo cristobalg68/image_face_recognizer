@@ -11,128 +11,13 @@ from PyQt6.QtCore import Qt, QSize, QTimer
 import cv2
 import numpy as np
 
-# Importar TODOS los módulos al inicio para detectar errores temprano
-try:
-    from face_widget import FaceWidget
-    from video_frame import VideoFrame
-    from face_scanner import LiveFaceScanner
-    print("✅ Módulos importados correctamente")
-except ImportError as e:
-    print(f"❌ Error al importar módulos: {e}")
-    print("\nAsegúrate de que todos los archivos estén en el mismo directorio:")
-    print("  - face_widget.py")
-    print("  - video_frame.py") 
-    print("  - face_scanner.py")
-    print("  - face_database.py")
-    print("  - face_utils.py")
-    print("  - detector.py")
-    sys.exit(1)
-except OSError as e:
-    if "WinError 1114" in str(e) or "DLL" in str(e):
-        print("\n" + "="*70)
-        print("❌ ERROR: Falta Visual C++ Redistributable o PyTorch mal instalado")
-        print("="*70)
-        print("\nSOLUCIONES:")
-        print("\n1. Instalar Visual C++ Redistributable:")
-        print("   https://aka.ms/vs/17/release/vc_redist.x64.exe")
-        print("\n2. Reinstalar PyTorch (versión CPU):")
-        print("   pip uninstall torch torchvision -y")
-        print("   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu")
-        print("="*70)
-        sys.exit(1)
+from face_widget import FaceWidget
+from video_frame import VideoFrame
+from face_scanner import LiveFaceScanner
+from dialogs import SelectFaceDialog
 
 BASE = os.path.dirname(__file__)
 ASSETS = os.path.join(BASE, "assets")
-
-
-class RegisterPersonDialog(QDialog):
-    """Diálogo para registrar una nueva persona"""
-    
-    def __init__(self, face_image, parent=None):
-        super().__init__(parent)
-        self.face_image = face_image
-        self.person_name = None
-        
-        self.setWindowTitle("Registrar Nueva Persona")
-        self.setModal(True)
-        self.setMinimumWidth(400)
-        
-        layout = QVBoxLayout(self)
-        layout.setSpacing(15)
-        
-        # Título
-        title = QLabel("Nueva cara detectada")
-        title.setStyleSheet("font-size: 14pt; font-weight: bold;")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
-        
-        # Mostrar la cara
-        face_label = QLabel()
-        face_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        face_label.setFixedSize(200, 200)
-        
-        if face_image is not None:
-            rgb_img = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
-            h, w, ch = rgb_img.shape
-            q_img = QImage(rgb_img.data, w, h, ch * w, QImage.Format.Format_RGB888)
-            pixmap = QPixmap.fromImage(q_img)
-            pixmap = pixmap.scaled(200, 200, Qt.AspectRatioMode.KeepAspectRatio)
-            face_label.setPixmap(pixmap)
-        
-        layout.addWidget(face_label, 0, Qt.AlignmentFlag.AlignHCenter)
-        
-        # Instrucción
-        instruction = QLabel("Ingrese el nombre de la persona:")
-        instruction.setStyleSheet("font-size: 11pt;")
-        layout.addWidget(instruction)
-        
-        # Input de nombre
-        from PyQt6.QtWidgets import QLineEdit
-        self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("Nombre completo...")
-        self.name_input.setStyleSheet("""
-            QLineEdit {
-                padding: 8px;
-                font-size: 11pt;
-                border: 2px solid #3a3f4b;
-                border-radius: 5px;
-                background-color: #1a1d23;
-                color: white;
-            }
-            QLineEdit:focus {
-                border-color: #5865f2;
-            }
-        """)
-        layout.addWidget(self.name_input)
-        
-        # Botones
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-        
-        # Estilo general
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #0f1116;
-                color: white;
-            }
-            QLabel {
-                color: white;
-            }
-        """)
-    
-    def accept(self):
-        """Validar y aceptar"""
-        name = self.name_input.text().strip()
-        if not name:
-            QMessageBox.warning(self, "Error", "Por favor ingrese un nombre")
-            return
-        
-        self.person_name = name
-        super().accept()
 
 
 class FaceRecognitionWindow(QMainWindow):
@@ -146,7 +31,7 @@ class FaceRecognitionWindow(QMainWindow):
         self.settings = {
             "path_weights": "weights/yolov12l-face.pt",
             "size": 640,
-            "confidence": 0.5,
+            "confidence": 0.6,
             "iou": 0.5,
             "hash_size": 16,
             "db_path": "data/faces.db"
@@ -177,7 +62,7 @@ class FaceRecognitionWindow(QMainWindow):
         
         # Header
         header = QHBoxLayout()
-        title = QLabel("🎥 Sistema de Reconocimiento Facial")
+        title = QLabel("Sistema de Reconocimiento Facial")
         title.setObjectName("appTitle")
         title.setStyleSheet("font-size: 20pt; font-weight: bold; color: #5865f2;")
         header.addWidget(title)
@@ -197,7 +82,7 @@ class FaceRecognitionWindow(QMainWindow):
         left_layout.setContentsMargins(20, 20, 20, 20)
         
         # Título
-        video_title = QLabel("📹 Cámara en Vivo")
+        video_title = QLabel("Cámara en Vivo")
         video_title.setStyleSheet("font-size: 16pt; font-weight: bold;")
         video_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         left_layout.addWidget(video_title)
@@ -220,7 +105,7 @@ class FaceRecognitionWindow(QMainWindow):
         controls.addWidget(self.btn_start)
         
         # Botón para registrar persona
-        self.btn_register = QPushButton("➕ Registrar Persona")
+        self.btn_register = QPushButton("Registrar Persona")
         self.btn_register.setObjectName("registerButton")
         self.btn_register.setMinimumHeight(45)
         self.btn_register.setEnabled(False)
@@ -228,7 +113,7 @@ class FaceRecognitionWindow(QMainWindow):
         controls.addWidget(self.btn_register)
         
         # Botón para limpiar detecciones
-        self.btn_clear = QPushButton("🗑 Limpiar")
+        self.btn_clear = QPushButton("Limpiar")
         self.btn_clear.setObjectName("clearButton")
         self.btn_clear.setMinimumHeight(45)
         self.btn_clear.clicked.connect(self.clear_detections)
@@ -246,7 +131,7 @@ class FaceRecognitionWindow(QMainWindow):
         right_layout.setContentsMargins(20, 20, 20, 20)
         
         # Título
-        detection_title = QLabel("👥 Personas Detectadas")
+        detection_title = QLabel("Personas Detectadas")
         detection_title.setStyleSheet("font-size: 16pt; font-weight: bold;")
         detection_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         right_layout.addWidget(detection_title)
@@ -350,9 +235,9 @@ class FaceRecognitionWindow(QMainWindow):
         # Crear scanner si no existe
         if not isinstance(self.scanner, LiveFaceScanner):
             try:
-                print("⏳ Cargando modelo YOLO...")
+                print("Cargando modelo YOLO...")
                 self.scanner = LiveFaceScanner(**self.settings)
-                print("✅ Scanner creado")
+                print("Scanner creado")
             except Exception as e:
                 QMessageBox.critical(
                     self,
@@ -428,11 +313,21 @@ class FaceRecognitionWindow(QMainWindow):
         # Verificar si hay nuevas personas
         for person_data in persons:
             person_name = person_data['name']
+            is_unknown = person_data.get('is_unknown', False)
             
-            if person_name not in self.detected_persons:
+            # Para personas conocidas, usar el nombre como key
+            # Para desconocidos, usar el nombre único (ej: "Desconocido #1")
+            person_key = person_name
+            
+            if person_key not in self.detected_persons:
                 # Nueva persona detectada
-                self.detected_persons[person_name] = person_data
+                self.detected_persons[person_key] = person_data
                 self.add_face_to_grid(person_data)
+            else:
+                # Actualizar si tiene mejor similitud (para desconocidos similares)
+                if is_unknown:
+                    # Actualizar la imagen si es más reciente
+                    self.detected_persons[person_key] = person_data
         
         # Actualizar contador
         self.detection_counter.setText(f"{len(self.detected_persons)} persona(s) detectada(s)")
@@ -488,19 +383,12 @@ class FaceRecognitionWindow(QMainWindow):
             )
             return
         
-        # Tomar la primera persona desconocida
-        person_data = unknown_persons[0]
-        face_image = person_data.get('face_image')
-        
-        if face_image is None:
-            QMessageBox.warning(self, "Error", "No se pudo obtener la imagen de la cara")
-            return
-        
-        # Mostrar diálogo
-        dialog = RegisterPersonDialog(face_image, self)
+        dialog = SelectFaceDialog(unknown_persons, self)
         
         if dialog.exec() == QDialog.DialogCode.Accepted:
+            selected_person = dialog.selected_person
             person_name = dialog.person_name
+            face_image = selected_person.get('face_image')
             
             # Registrar en la base de datos
             try:

@@ -21,7 +21,7 @@ def register_person_from_image(db, image_path, person_name):
     img = cv2.imread(image_path)
     
     if img is None:
-        print(f"❌ Error: No se pudo leer la imagen {image_path}")
+        print(f" Error: No se pudo leer la imagen {image_path}")
         return False
     
     # Registrar en la base de datos
@@ -47,8 +47,8 @@ def main():
     db = FaceDatabase(db_path, images_cache_dir="data/face_images")
     db.connect()
     
-    print(f"✅ Base de datos creada en: {db_path}")
-    print(f"✅ Caché de imágenes en: data/face_images")
+    print(f" Base de datos creada en: {db_path}")
+    print(f" Caché de imágenes en: data/face_images")
     print()
     
     # Opción 1: Registrar desde directorio
@@ -81,9 +81,9 @@ def main():
                 
                 register_person_from_image(db, img_path, person_name)
         else:
-            print("⚠️  No se encontraron imágenes en el directorio")
+            print("  No se encontraron imágenes en el directorio")
     else:
-        print(f"⚠️  El directorio {faces_dir} no existe")
+        print(f"  El directorio {faces_dir} no existe")
         print(f"   Crea el directorio y coloca imágenes de caras allí")
         print(f"   Nombra las imágenes con el nombre de la persona (ejemplo: juan_perez.jpg)")
     
@@ -105,13 +105,13 @@ def main():
         person_name = input("Nombre de la persona: ").strip()
         
         if not person_name:
-            print("❌ El nombre no puede estar vacío")
+            print(" El nombre no puede estar vacío")
             continue
         
         img_path = input("Ruta a la imagen de la cara: ").strip()
         
         if not os.path.exists(img_path):
-            print(f"❌ La imagen no existe: {img_path}")
+            print(f" La imagen no existe: {img_path}")
             continue
         
         register_person_from_image(db, img_path, person_name)
@@ -130,7 +130,7 @@ def main():
         for person_id, name, img_path in persons:
             print(f"  • {name}")
     else:
-        print("\n⚠️  No hay personas registradas aún")
+        print("\n  No hay personas registradas aún")
         print()
         print("INSTRUCCIONES:")
         print("1. Crea el directorio 'data/training_faces'")
@@ -151,8 +151,8 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n\n⚠️  Operación cancelada por el usuario")
+        print("\n\n  Operación cancelada por el usuario")
     except Exception as e:
-        print(f"\n❌ Error: {e}")
+        print(f"\n Error: {e}")
         import traceback
         traceback.print_exc()
